@@ -1,16 +1,16 @@
-import * as cdk from 'aws-cdk-lib';
-import * as ecs from 'aws-cdk-lib/aws-ecs';
-import * as ec2 from 'aws-cdk-lib/aws-ec2';
-import * as r53 from 'aws-cdk-lib/aws-route53';
-import * as r53Targets from 'aws-cdk-lib/aws-route53-targets';
-import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
-import * as autoscaling from 'aws-cdk-lib/aws-autoscaling';
-import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
-import { Construct } from 'constructs';
+import * as cdk from 'aws-cdk-lib'
+import * as ecs from 'aws-cdk-lib/aws-ecs'
+import * as ec2 from 'aws-cdk-lib/aws-ec2'
+import * as r53 from 'aws-cdk-lib/aws-route53'
+import * as r53Targets from 'aws-cdk-lib/aws-route53-targets'
+import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2'
+import * as iam from 'aws-cdk-lib/aws-iam'
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager'
+import { Construct } from 'constructs'
 
 export class Cs2CdkStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
-    super(scope, id, props);
+    super(scope, id, props)
 
     const vpc = new ec2.Vpc(this, 'VPC', {
       ipAddresses: cdk.aws_ec2.IpAddresses.cidr(
@@ -23,26 +23,71 @@ export class Cs2CdkStack extends cdk.Stack {
           subnetType: cdk.aws_ec2.SubnetType.PUBLIC,
         },
       ],
-    });
+    })
 
-    const cluster = new ecs.Cluster(this, 'Cluster', { vpc });
-    cluster.addCapacity('DefaultCapacity', {
+    const cluster = new ecs.Cluster(this, 'Cluster', { vpc })
+    const autoScalingGroup = cluster.addCapacity('DefaultCapacity', {
       instanceType: new ec2.InstanceType("t3.large"),
       desiredCapacity: 1,
-      blockDevices: [{
-        deviceName: '/dev/xvda',
-        volume: autoscaling.BlockDeviceVolume.ebs(60)
-      }]
-    });
+    })
+
+    autoScalingGroup.addUserData(`docker plugin install rexray/ebs REXRAY_PREEMPT=true EBS_REGION=${this.region} --grant-all-permissions \nstop ecs \nstart ecs`)
+
+    const ebsPolicy = new iam.Policy(this, 'ec2-policy-create-ebs', {
+      policyName: 'REXRay-EBS',
+      statements: [
+        iam.PolicyStatement.fromJson({
+          Effect: 'Allow',
+          Action: [
+            'ec2:AttachVolume',
+            'ec2:CreateVolume',
+            'ec2:CreateSnapshot',
+            'ec2:CreateTags',
+            'ec2:DeleteVolume',
+            'ec2:DeleteSnapshot',
+            'ec2:DescribeAvailabilityZones',
+            'ec2:DescribeInstances',
+            'ec2:DescribeVolumes',
+            'ec2:DescribeVolumeAttribute',
+            'ec2:DescribeVolumeStatus',
+            'ec2:DescribeSnapshots',
+            'ec2:CopySnapshot',
+            'ec2:DescribeSnapshotAttribute',
+            'ec2:DetachVolume',
+            'ec2:ModifySnapshotAttribute',
+            'ec2:ModifyVolumeAttribute',
+            'ec2:DescribeTags',
+          ],
+          Resource: '*',
+        }),
+      ],
+    })
+
+    autoScalingGroup.role.attachInlinePolicy(ebsPolicy)
 
     const taskDef = new ecs.TaskDefinition(this, 'TaskDef', {
       compatibility: ecs.Compatibility.EC2,
       networkMode: ecs.NetworkMode.HOST,
-    });
+    })
+
+    const cs2DataVolumeName = 'CS2EBSVolume'
+
+    taskDef.addVolume({
+      name: cs2DataVolumeName,
+      dockerVolumeConfiguration: {
+        autoprovision: true,
+        scope: ecs.Scope.SHARED,
+        driver: 'rexray/ebs',
+        driverOpts: {
+          volumetype: 'gp2',
+          size: '50',
+        }
+      }
+    })
 
     const secretEnvVariables = new secretsmanager.Secret(this, 'SecretEnvVariables')
 
-    taskDef.addContainer('DefaultContainer', {
+    const defaultContainer = taskDef.addContainer('DefaultContainer', {
       image: ecs.ContainerImage.fromRegistry("joedwards32/cs2"),
       memoryLimitMiB: 4096,
       portMappings: [{
@@ -72,7 +117,13 @@ export class Cs2CdkStack extends cdk.Stack {
       logging: ecs.LogDrivers.awsLogs({
         streamPrefix: 'CS2CDKLogStream'
       }),
-    });
+    })
+
+    defaultContainer.addMountPoints({
+      sourceVolume: cs2DataVolumeName,
+      containerPath: '/home/steam/cs2-dedicated/',
+      readOnly: false,
+    })
 
     taskDef.addContainer('HealthCheckContainer', {
       image: ecs.ContainerImage.fromRegistry("busybox:latest"),
@@ -96,7 +147,7 @@ export class Cs2CdkStack extends cdk.Stack {
       cluster: cluster,
       taskDefinition: taskDef,
       desiredCount: 1,
-    });
+    })
 
     ecsService.connections.allowFromAnyIpv4(ec2.Port.udp(27015))
     ecsService.connections.allowFromAnyIpv4(ec2.Port.tcp(27016))
@@ -152,7 +203,7 @@ export class Cs2CdkStack extends cdk.Stack {
 
     const hostedZone = r53.HostedZone.fromLookup(this, 'HostedZone', {
       domainName: "cs2.corrosivekid.com",
-    });
+    })
 
     const dnsRecord = new r53.ARecord(this, 'DnsRecord', {
       target: r53.RecordTarget.fromAlias(new r53Targets.LoadBalancerTarget(loadBalancer)),
