@@ -31,7 +31,7 @@ export class Cs2CdkStack extends cdk.Stack {
       desiredCapacity: 1,
     })
 
-    autoScalingGroup.addUserData(`docker plugin install rexray/ebs REXRAY_PREEMPT=true EBS_REGION=${this.region} --grant-all-permissions \nstop ecs \nstart ecs`)
+    autoScalingGroup.addUserData(`EBS_USELARGEDEVICERANGE=true docker plugin install umsp/rexray-ebs:nvme-fix --alias rexray/ebs REXRAY_PREEMPT=true EBS_REGION=${this.region} --grant-all-permissions \nstop ecs \nstart ecs`)
 
     const ebsPolicy = new iam.Policy(this, 'ec2-policy-create-ebs', {
       policyName: 'REXRay-EBS',
