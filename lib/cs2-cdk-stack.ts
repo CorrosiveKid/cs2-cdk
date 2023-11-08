@@ -27,7 +27,7 @@ export class Cs2CdkStack extends cdk.Stack {
 
     const cluster = new ecs.Cluster(this, 'Cluster', { vpc })
     const autoScalingGroup = cluster.addCapacity('DefaultCapacity', {
-      instanceType: new ec2.InstanceType("t3.large"),
+      instanceType: new ec2.InstanceType("t3.small"),
       desiredCapacity: 1,
     })
 
@@ -89,7 +89,7 @@ export class Cs2CdkStack extends cdk.Stack {
 
     const defaultContainer = taskDef.addContainer('DefaultContainer', {
       image: ecs.ContainerImage.fromRegistry("joedwards32/cs2"),
-      memoryLimitMiB: 4096,
+      memoryLimitMiB: 1878,
       portMappings: [{
         containerPort: 27015,
         hostPort: 27015,
@@ -127,7 +127,7 @@ export class Cs2CdkStack extends cdk.Stack {
 
     taskDef.addContainer('HealthCheckContainer', {
       image: ecs.ContainerImage.fromRegistry("busybox:latest"),
-      memoryLimitMiB: 256,
+      memoryLimitMiB: 64,
       essential: true,
       portMappings: [{
         containerPort: 8080,
@@ -147,6 +147,8 @@ export class Cs2CdkStack extends cdk.Stack {
       cluster: cluster,
       taskDefinition: taskDef,
       desiredCount: 1,
+      minHealthyPercent: 0,
+      maxHealthyPercent: 100
     })
 
     ecsService.connections.allowFromAnyIpv4(ec2.Port.udp(27015))
