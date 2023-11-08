@@ -85,7 +85,7 @@ export class Cs2CdkStack extends cdk.Stack {
       }
     })
 
-    const secretEnvVariables = new secretsmanager.Secret(this, 'SecretEnvVariables')
+    const secretEnvVariables = new secretsmanager.Secret(this, 'CS2CDKSecretEnvVariables')
 
     const defaultContainer = taskDef.addContainer('DefaultContainer', {
       image: ecs.ContainerImage.fromRegistry("joedwards32/cs2"),
